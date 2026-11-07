@@ -130,6 +130,7 @@ func runDoctor() {
 	// External tools
 	fmt.Println()
 	fmt.Println("  External Tools:")
+	checkBinary("udocker")
 	checkBinary("docker")
 	checkBinary("curl")
 	checkBinary("git")

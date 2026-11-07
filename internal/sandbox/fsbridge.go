@@ -1,9 +1,9 @@
-// Package sandbox — fsbridge.go provides sandboxed file operations via Docker exec.
+// Package sandbox — fsbridge.go provides sandboxed file operations via container exec.
 // Matching TS src/agents/sandbox/fs-bridge.ts.
 //
 // When sandbox is enabled, file tools (read_file, write_file, list_files)
 // route through FsBridge instead of direct host filesystem access.
-// All operations execute inside the Docker container via "docker exec".
+// All operations execute inside the container via "docker exec" or "udocker run".
 package sandbox
 
 import (
@@ -20,6 +20,23 @@ import (
 type FsBridge struct {
 	containerID string
 	workdir     string // container-side working directory (e.g. "/workspace")
+	execFn      func(ctx context.Context, stdin []byte, args ...string) (string, string, int, error)
+}
+
+// fsExecer is implemented by sandboxes that know how to run FsBridge commands
+// with their own runtime (e.g. udocker).
+type fsExecer interface {
+	fsExec(ctx context.Context, stdin []byte, args ...string) (string, string, int, error)
+}
+
+// NewFsBridgeForSandbox creates a bridge that executes through the sandbox's
+// container runtime. Falls back to "docker exec" for other Sandbox types.
+func NewFsBridgeForSandbox(sb Sandbox, workdir string) *FsBridge {
+	b := NewFsBridge(sb.ID(), workdir)
+	if e, ok := sb.(fsExecer); ok {
+		b.execFn = e.fsExec
+	}
+	return b
 }
 
 // NewFsBridge creates a bridge to a running sandbox container.
@@ -242,14 +259,25 @@ func (b *FsBridge) validateParentBeforeCreate(ctx context.Context, dir string) e
 
 // dockerExec runs a command inside the container and returns stdout, stderr, exit code.
 func (b *FsBridge) dockerExec(ctx context.Context, stdin []byte, args ...string) (string, string, int, error) {
+	if b.execFn != nil {
+		return b.execFn(ctx, stdin, args...)
+	}
+	return dockerFsExec(ctx, b.containerID, stdin, args...)
+}
+
+func dockerFsExec(ctx context.Context, containerID string, stdin []byte, args ...string) (string, string, int, error) {
 	dockerArgs := []string{"exec"}
 	if stdin != nil {
 		dockerArgs = append(dockerArgs, "-i")
 	}
-	dockerArgs = append(dockerArgs, b.containerID)
+	dockerArgs = append(dockerArgs, containerID)
 	dockerArgs = append(dockerArgs, args...)
+	return runCollect(exec.CommandContext(ctx, "docker", dockerArgs...), stdin)
+}
 
-	cmd := exec.CommandContext(ctx, "docker", dockerArgs...)
+// runCollect runs cmd and returns stdout, stderr and exit code. A non-zero
+// exit is not reported as an error.
+func runCollect(cmd *exec.Cmd, stdin []byte) (string, string, int, error) {
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -263,7 +291,6 @@ func (b *FsBridge) dockerExec(ctx context.Context, stdin []byte, args ...string)
 	if err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {
 			exitCode = exitErr.ExitCode()
-			err = nil // non-zero exit is not an execution error
 		} else {
 			return "", "", -1, err
 		}

@@ -298,5 +298,5 @@ func (t *WriteFileTool) getFsBridge(ctx context.Context, sandboxKey, mountWorksp
 	if err != nil {
 		return nil, err
 	}
-	return sandbox.NewFsBridge(sb.ID(), containerCwd), nil
+	return sandbox.NewFsBridgeForSandbox(sb, containerCwd), nil
 }

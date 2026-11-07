@@ -1,4 +1,5 @@
 # Sandbox overlay — enables Docker-based sandbox for agent code execution.
+# (Outside Docker, the default sandbox runtime is udocker: see docs/sandbox-udocker.md.)
 #
 # Prerequisites:
 #   1. Build the sandbox image:  docker build -t goclaw-sandbox:bookworm-slim -f Dockerfile.sandbox .
@@ -20,6 +21,7 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
       - GOCLAW_SANDBOX_MODE=all
+      - GOCLAW_SANDBOX_RUNTIME=docker
       - GOCLAW_SANDBOX_IMAGE=goclaw-sandbox:bookworm-slim
       - GOCLAW_SANDBOX_WORKSPACE_ACCESS=rw
       - GOCLAW_SANDBOX_SCOPE=session

@@ -10,6 +10,7 @@ import (
 
 	"github.com/nextlevelbuilder/goclaw/internal/config"
 	"github.com/nextlevelbuilder/goclaw/internal/providers"
+	"github.com/nextlevelbuilder/goclaw/internal/sandbox"
 	"github.com/nextlevelbuilder/goclaw/internal/tools"
 )
 
@@ -29,7 +30,7 @@ func TestSetupToolRegistrySandbox(t *testing.T) {
 				}
 				cfg := config.Default()
 				cfg.DataDir = filepath.Join(t.TempDir(), "data")
-				cfg.Agents.Defaults.Sandbox = &config.SandboxConfig{Mode: mode}
+				cfg.Agents.Defaults.Sandbox = &config.SandboxConfig{Mode: mode, Runtime: "docker"}
 				reg, approvalMgr, mcpMgr, mgr, browserMgr, fetchTool, ttsTool, audioMgr, permPE, toolPE, dataDir, _, err := setupToolRegistry(cfg, t.TempDir(), providers.NewRegistry(nil))
 				if mgr != nil {
 					t.Cleanup(mgr.Stop)
@@ -97,7 +98,7 @@ exit 1
 			if mode == "nil" {
 				cfg.Agents.Defaults.Sandbox = nil
 			} else {
-				cfg.Agents.Defaults.Sandbox = &config.SandboxConfig{Mode: mode}
+				cfg.Agents.Defaults.Sandbox = &config.SandboxConfig{Mode: mode, Runtime: "docker"}
 			}
 			reg, _, mcpMgr, mgr, browserMgr, _, _, _, _, _, _, _, err := setupToolRegistry(cfg, workspace, providers.NewRegistry(nil))
 			if mcpMgr != nil {
@@ -154,6 +155,62 @@ exit 1
 				if _, err := os.Stat(marker); !os.IsNotExist(err) {
 					t.Fatalf("%s host marker stat error = %v, want not exist", entry.name, err)
 				}
+			}
+		})
+	}
+}
+
+func TestSetupToolRegistrySandboxUdocker(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake udocker executable requires a POSIX shell")
+	}
+	for _, tc := range []struct {
+		name   string
+		script string
+		ok     bool
+	}{
+		{name: "missing"},
+		{name: "broken", script: "#!/bin/sh\necho 'udocker tools not installed' >&2\nexit 1\n"},
+		{name: "ready", script: "#!/bin/sh\necho 'version: 1.3.17'\n", ok: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			binDir := t.TempDir()
+			t.Setenv("PATH", binDir)
+			if tc.script != "" {
+				if err := os.WriteFile(filepath.Join(binDir, "udocker"), []byte(tc.script), 0755); err != nil {
+					t.Fatal(err)
+				}
+			}
+			cfg := config.Default()
+			cfg.DataDir = t.TempDir()
+			cfg.Agents.Defaults.Sandbox = &config.SandboxConfig{Mode: "all"}
+			reg, _, mcpMgr, mgr, browserMgr, _, _, _, _, _, _, _, err := setupToolRegistry(cfg, t.TempDir(), providers.NewRegistry(nil))
+			if mcpMgr != nil {
+				t.Cleanup(mcpMgr.Stop)
+			}
+			if browserMgr != nil {
+				t.Cleanup(func() { _ = browserMgr.Close() })
+			}
+			if mgr != nil {
+				t.Cleanup(mgr.Stop)
+			}
+			if !tc.ok {
+				if err == nil || !strings.Contains(err.Error(), "udocker not available") {
+					t.Fatalf("startup error = %v, want udocker cause", err)
+				}
+				if tc.script != "" && !strings.Contains(err.Error(), "udocker tools not installed") {
+					t.Fatalf("startup error lost udocker output: %v", err)
+				}
+				if reg != nil || mgr != nil {
+					t.Fatal("failed setup returned resources")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("setupToolRegistry() error = %v", err)
+			}
+			if mgr == nil || mgr.Stats()["runtime"] != sandbox.RuntimeUdocker {
+				t.Fatalf("sandbox manager = %v, want udocker runtime", mgr)
 			}
 		})
 	}

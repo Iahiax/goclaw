@@ -363,6 +363,10 @@ func (c *Config) applyEnvOverrides() {
 		ensureSandbox()
 		c.Agents.Defaults.Sandbox.Mode = v
 	}
+	if v := os.Getenv("GOCLAW_SANDBOX_RUNTIME"); v != "" {
+		ensureSandbox()
+		c.Agents.Defaults.Sandbox.Runtime = v
+	}
 	if v := os.Getenv("GOCLAW_SANDBOX_IMAGE"); v != "" {
 		ensureSandbox()
 		c.Agents.Defaults.Sandbox.Image = v
