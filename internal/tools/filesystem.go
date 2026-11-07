@@ -250,7 +250,7 @@ func (t *ReadFileTool) getFsBridge(ctx context.Context, sandboxKey, mountWorkspa
 	if err != nil {
 		return nil, err
 	}
-	return sandbox.NewFsBridge(sb.ID(), containerCwd), nil
+	return sandbox.NewFsBridgeForSandbox(sb, containerCwd), nil
 }
 
 // readFileMaxChars is the output cap for read_file. Large files require offset/limit pagination.

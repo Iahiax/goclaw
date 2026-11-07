@@ -56,13 +56,13 @@ func setupToolRegistry(
 ) {
 	// Check configured isolation before allocating tools or other resources.
 	if sbCfg := cfg.Agents.Defaults.Sandbox; sbCfg != nil && sbCfg.Mode != "" && sbCfg.Mode != "off" {
-		if probeErr := sandbox.CheckDockerAvailable(context.Background()); probeErr != nil {
+		resolved := sbCfg.ToSandboxConfig()
+		if probeErr := sandbox.CheckRuntimeAvailable(context.Background(), resolved.Runtime); probeErr != nil {
 			err = fmt.Errorf("sandbox mode %q unavailable: %w", sbCfg.Mode, probeErr)
 			return
 		}
-		resolved := sbCfg.ToSandboxConfig()
 		sandboxMgr = sandbox.NewDockerManager(resolved)
-		slog.Info("sandbox enabled", "mode", string(resolved.Mode), "image", resolved.Image, "scope", string(resolved.Scope))
+		slog.Info("sandbox enabled", "mode", string(resolved.Mode), "runtime", string(resolved.Runtime), "image", resolved.Image, "scope", string(resolved.Scope))
 	}
 
 	// Create tool registry with all tools

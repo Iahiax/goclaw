@@ -203,7 +203,7 @@ goclaw --server https://goclaw.example.com --token "$GOCLAW_GATEWAY_TOKEN" trace
 |------|---------|-------------|
 | `WITH_BROWSER=1` | Headless Chrome | Enables `browser` tool for web scraping, screenshots, automation |
 | `WITH_OTEL=1` | Jaeger | OpenTelemetry tracing UI for debugging LLM calls and latency |
-| `WITH_SANDBOX=1` | Docker sandbox | Isolated container for running untrusted code from agents |
+| `WITH_SANDBOX=1` | Docker sandbox | Isolated container for running untrusted code from agents (without Docker, use udocker: [docs/sandbox-udocker.md](docs/sandbox-udocker.md)) |
 | `WITH_TAILSCALE=1` | Tailscale | Expose gateway over Tailscale private network |
 | `WITH_REDIS=1` | Redis | Redis-backed caching layer |
 

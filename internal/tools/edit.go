@@ -225,7 +225,7 @@ func (t *EditTool) executeInSandbox(ctx context.Context, path, oldStr, newStr st
 
 	containerPath := ResolveSandboxPath(path, containerCwd)
 
-	bridge := sandbox.NewFsBridge(sb.ID(), containerCwd)
+	bridge := sandbox.NewFsBridgeForSandbox(sb, containerCwd)
 	content, err := bridge.ReadFile(ctx, containerPath)
 	if err != nil {
 		return ErrorResult(fmt.Sprintf("failed to read file: %v", err) + MaybeFsBridgeHint(err))

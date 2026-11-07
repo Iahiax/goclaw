@@ -25,9 +25,12 @@ func CheckDockerAvailable(ctx context.Context) error {
 	return nil
 }
 
-// DockerSandbox is a sandbox backed by a Docker container.
+// DockerSandbox is a sandbox backed by a container managed by Docker or
+// udocker (see Runtime).
 type DockerSandbox struct {
 	containerID string
+	runtime     Runtime  // "" or RuntimeDocker = docker; RuntimeUdocker = udocker
+	runArgs     []string // udocker: per-run options (volumes, env, user) re-applied on every exec
 	config      Config
 	workspace   string
 	createdAt   time.Time
@@ -177,19 +180,6 @@ func (s *DockerSandbox) Exec(ctx context.Context, command []string, workDir stri
 
 	o := ApplyExecOpts(opts)
 
-	args := []string{"exec"}
-	// Inject env vars as -e flags before containerID (credentialed exec)
-	for k, v := range o.Env {
-		args = append(args, "-e", k+"="+v)
-	}
-	if workDir != "" {
-		args = append(args, "-w", workDir)
-	}
-	args = append(args, s.containerID)
-	args = append(args, command...)
-
-	cmd := exec.CommandContext(execCtx, "docker", args...)
-
 	// Limit output capture to prevent OOM from large command output
 	maxOut := s.config.MaxOutputBytes
 	if maxOut <= 0 {
@@ -197,6 +187,13 @@ func (s *DockerSandbox) Exec(ctx context.Context, command []string, workDir stri
 	}
 	stdout := &limitedBuffer{max: maxOut}
 	stderr := &limitedBuffer{max: maxOut}
+
+	var cmd *exec.Cmd
+	if s.runtime == RuntimeUdocker {
+		cmd = udockerCommand(execCtx, s.udockerExecArgs(command, workDir, o.Env)...)
+	} else {
+		cmd = exec.CommandContext(execCtx, "docker", s.dockerExecArgs(command, workDir, o.Env)...)
+	}
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
 
@@ -206,7 +203,7 @@ func (s *DockerSandbox) Exec(ctx context.Context, command []string, workDir stri
 		if exitErr, ok := err.(*exec.ExitError); ok {
 			exitCode = exitErr.ExitCode()
 		} else {
-			return nil, fmt.Errorf("docker exec: %w", err)
+			return nil, fmt.Errorf("%s exec: %w", s.runtimeName(), err)
 		}
 	}
 
@@ -224,12 +221,38 @@ func (s *DockerSandbox) Exec(ctx context.Context, command []string, workDir stri
 	return result, nil
 }
 
+func (s *DockerSandbox) runtimeName() string {
+	if s.runtime == RuntimeUdocker {
+		return "udocker"
+	}
+	return "docker"
+}
+
+// dockerExecArgs builds "docker exec" arguments for a command.
+func (s *DockerSandbox) dockerExecArgs(command []string, workDir string, env map[string]string) []string {
+	args := []string{"exec"}
+	// Inject env vars as -e flags before containerID (credentialed exec)
+	for k, v := range env {
+		args = append(args, "-e", k+"="+v)
+	}
+	if workDir != "" {
+		args = append(args, "-w", workDir)
+	}
+	args = append(args, s.containerID)
+	return append(args, command...)
+}
+
 // Destroy removes the container.
 func (s *DockerSandbox) Destroy(ctx context.Context) error {
 	if s.destroyFunc != nil {
 		return s.destroyFunc(ctx)
 	}
-	cmd := exec.CommandContext(ctx, "docker", "rm", "-f", s.containerID)
+	var cmd *exec.Cmd
+	if s.runtime == RuntimeUdocker {
+		cmd = udockerCommand(ctx, "rm", "-f", s.containerID)
+	} else {
+		cmd = exec.CommandContext(ctx, "docker", "rm", "-f", s.containerID)
+	}
 	if err := cmd.Run(); err != nil {
 		slog.Warn("failed to remove sandbox container", "id", s.containerID, "error", err)
 		return err
@@ -241,7 +264,8 @@ func (s *DockerSandbox) Destroy(ctx context.Context) error {
 // ID returns the container ID.
 func (s *DockerSandbox) ID() string { return s.containerID }
 
-// DockerManager manages Docker sandbox containers based on scope.
+// DockerManager manages sandbox containers based on scope. The container
+// engine (udocker or Docker) is chosen per container from Config.Runtime.
 type DockerManager struct {
 	config    Config
 	sandboxes map[string]*DockerSandbox
@@ -307,7 +331,12 @@ func (m *DockerManager) Get(
 		prefix = "goclaw-sbx-"
 	}
 	name := prefix + sanitizeKey(cacheKey)
-	sb, err := newDockerSandbox(ctx, name, cfg, workspace, readOnlyMounts...)
+	var sb *DockerSandbox
+	if cfg.Runtime == RuntimeDocker {
+		sb, err = newDockerSandbox(ctx, name, cfg, workspace, readOnlyMounts...)
+	} else {
+		sb, err = newUdockerSandbox(ctx, name, cfg, workspace, readOnlyMounts...)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -364,6 +393,7 @@ func (m *DockerManager) Stats() map[string]any {
 
 	return map[string]any{
 		"mode":       m.config.Mode,
+		"runtime":    m.config.Runtime,
 		"image":      m.config.Image,
 		"active":     len(m.sandboxes),
 		"containers": containers,

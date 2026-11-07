@@ -407,10 +407,11 @@ type DreamingConfig struct {
 	VerboseLog *bool `json:"verbose_log,omitempty"` // log debounce/below-threshold skips at info level (default false)
 }
 
-// SandboxConfig configures Docker-based sandbox execution.
+// SandboxConfig configures container-based sandbox execution (udocker or Docker).
 // Matching TS agents.defaults.sandbox.
 type SandboxConfig struct {
 	Mode            string            `json:"mode,omitempty"`             // "off" (default), "non-main", "all"
+	Runtime         string            `json:"runtime,omitempty"`          // "udocker" (default), "docker"
 	Image           string            `json:"image,omitempty"`            // Docker image (default: "goclaw-sandbox:bookworm-slim")
 	WorkspaceAccess string            `json:"workspace_access,omitempty"` // "none", "ro", "rw" (default)
 	Scope           string            `json:"scope,omitempty"`            // "session" (default), "agent", "shared"
@@ -451,6 +452,9 @@ func (sc *SandboxConfig) ToSandboxConfig() sandbox.Config {
 		cfg.Mode = sandbox.ModeOff
 	}
 
+	if sc.Runtime != "" {
+		cfg.Runtime = sandbox.ParseRuntime(sc.Runtime)
+	}
 	if sc.Image != "" {
 		cfg.Image = sc.Image
 	}

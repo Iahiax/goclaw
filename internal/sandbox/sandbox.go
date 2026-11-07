@@ -1,7 +1,8 @@
-// Package sandbox provides Docker-based code execution isolation.
+// Package sandbox provides container-based code execution isolation.
 //
-// Agents can run tool commands (exec, shell) inside Docker containers
-// instead of the host system. Sandbox modes:
+// Agents can run tool commands (exec, shell) inside containers instead of the
+// host system. Containers are managed by udocker (default, rootless and
+// daemonless) or Docker. Sandbox modes:
 //   - off: no sandboxing, execute directly on host
 //   - non-main: all agents except "main" run in sandbox
 //   - all: every agent runs in sandbox
@@ -41,6 +42,25 @@ const (
 	AccessRW   Access = "rw"   // read-write
 )
 
+// Runtime selects the container engine used to run sandboxes.
+type Runtime string
+
+const (
+	RuntimeUdocker Runtime = "udocker" // rootless, daemonless (default)
+	RuntimeDocker  Runtime = "docker"  // Docker CLI + daemon
+)
+
+// ParseRuntime maps a config string to a Runtime. Empty or unknown values
+// fall back to udocker.
+func ParseRuntime(s string) Runtime {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case string(RuntimeDocker):
+		return RuntimeDocker
+	default:
+		return RuntimeUdocker
+	}
+}
+
 // Scope determines container reuse granularity.
 type Scope string
 
@@ -54,6 +74,7 @@ const (
 // Matches TS SandboxDockerSettings + SandboxConfig.
 type Config struct {
 	Mode              Mode              `json:"mode"`
+	Runtime           Runtime           `json:"runtime,omitempty"`
 	Image             string            `json:"image"`
 	WorkspaceAccess   Access            `json:"workspace_access"`
 	Scope             Scope             `json:"scope"`
@@ -86,6 +107,7 @@ type Config struct {
 func DefaultConfig() Config {
 	return Config{
 		Mode:             ModeOff,
+		Runtime:          RuntimeUdocker,
 		Image:            "goclaw-sandbox:bookworm-slim",
 		WorkspaceAccess:  AccessRW,
 		Scope:            ScopeSession,
